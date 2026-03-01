@@ -10,7 +10,7 @@ export function ApiKeyBanner() {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
-        setHasKey(!!data.apiKey);
+        setHasKey(!!data.hasApiKey);
       })
       .catch(() => setHasKey(false));
   }, []);

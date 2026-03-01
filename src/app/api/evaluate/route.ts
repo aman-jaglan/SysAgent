@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
     const provider = (getSetting("provider") as Provider) || "openai";
     const model = getSetting("model") || "gpt-5-mini";
-    const apiKey = getSetting("apiKey");
+    const apiKey = getSetting("api_key");
 
     const dbMessages = getMessages(sessionId);
     const messages: Message[] = dbMessages.map((m) => ({
