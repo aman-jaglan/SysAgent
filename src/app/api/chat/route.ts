@@ -163,18 +163,19 @@ export async function POST(req: Request) {
       });
     }
 
-    // Add the new user message
-    if (message) {
-      const userMsg: Message = {
-        id: nanoid(12),
-        role: "user",
-        content: message,
-        createdAt: Date.now(),
-      };
-      state.contextManager.addMessage(userMsg);
-      state.messageCount++;
+    // Add the new user message (or a kickoff prompt for the initial call)
+    const actualMessage = message || "Please begin the interview. Present the problem.";
+    const userMsg: Message = {
+      id: nanoid(12),
+      role: "user",
+      content: actualMessage,
+      createdAt: Date.now(),
+    };
+    state.contextManager.addMessage(userMsg);
+    state.messageCount++;
 
-      // Persist user message
+    // Persist user message (skip the auto-generated kickoff)
+    if (message) {
       addMessage({
         id: userMsg.id,
         sessionId,
