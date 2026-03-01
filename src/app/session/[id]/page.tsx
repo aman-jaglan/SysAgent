@@ -10,6 +10,7 @@ import {
 } from "react-resizable-panels";
 import { AgentPanel } from "@/components/session/agent-panel";
 import { SessionTimer } from "@/components/session/session-timer";
+import { useCanvasVision } from "@/hooks/use-canvas-vision";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { InterviewLevel } from "@/types";
 
@@ -56,6 +57,11 @@ export default function SessionPage({
   const [excalidrawApi, setExcalidrawApi] =
     useState<ExcalidrawImperativeAPI | null>(null);
   const initialized = useRef(false);
+
+  const { lastDescription: canvasDescription, captureNow } = useCanvasVision({
+    sessionId: id,
+    excalidrawApi,
+  });
 
   // Initialize session — create via API and get the first interviewer message
   useEffect(() => {
@@ -125,6 +131,9 @@ export default function SessionPage({
 
       setIsLoading(true);
 
+      // Capture canvas before sending message for fresh context
+      await captureNow();
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -136,6 +145,7 @@ export default function SessionPage({
             level: activeConfig.level,
             goal: activeConfig.goal,
             jd: activeConfig.jd,
+            canvasDescription,
           }),
         });
 
