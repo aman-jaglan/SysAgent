@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
@@ -18,7 +18,12 @@ const ExcalidrawEditor = dynamic(
     import("@/components/canvas/excalidraw-editor").then(
       (m) => m.ExcalidrawEditor
     ),
-  { ssr: false, loading: () => <div className="h-full w-full bg-[var(--color-muted)] animate-pulse" /> }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full bg-[var(--color-muted)] animate-pulse" />
+    ),
+  }
 );
 
 interface SessionMessage {
@@ -26,10 +31,12 @@ interface SessionMessage {
   content: string;
 }
 
-interface SessionData {
+interface SessionConfig {
   goal: string;
   level: InterviewLevel;
   jd?: string;
+  problemId?: string;
+  problemTitle?: string;
 }
 
 export default function SessionPage({
@@ -39,47 +46,169 @@ export default function SessionPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(
+    null
+  );
   const [messages, setMessages] = useState<SessionMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [startTime] = useState(Date.now());
-  const [, setExcalidrawApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [currentPhase, setCurrentPhase] = useState("setup");
+  const [excalidrawApi, setExcalidrawApi] =
+    useState<ExcalidrawImperativeAPI | null>(null);
+  const initialized = useRef(false);
 
+  // Initialize session — create via API and get the first interviewer message
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     const stored = sessionStorage.getItem(`session-${id}`);
-    if (stored) {
-      const data = JSON.parse(stored) as SessionData;
-      setSessionData(data);
-      setMessages([
-        {
-          role: "assistant",
-          content: `Welcome! I'll be your system design interviewer today. I see you're preparing at the ${data.level} level. ${data.goal ? `Your focus: "${data.goal}". ` : ""}Let me pick a relevant problem for you. Ready to begin?`,
-        },
-      ]);
-    } else {
+    if (!stored) {
       setMessages([
         {
           role: "assistant",
           content:
-            "Welcome! Let's practice system design. What topic would you like to work on?",
+            "Session not found. Please start a new session from the home page.",
         },
       ]);
+      return;
     }
+
+    const data = JSON.parse(stored) as SessionConfig;
+    setSessionConfig(data);
+
+    // Create the session via API
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        goal: data.goal,
+        level: data.level,
+        jd: data.jd,
+        problemId: data.problemId,
+      }),
+    })
+      .then((res) => res.json())
+      .then((session) => {
+        // Store the problem info for chat API calls
+        const config: SessionConfig = {
+          ...data,
+          problemId: session.problem?.id || data.problemId,
+          problemTitle: session.problem?.title,
+        };
+        setSessionConfig(config);
+        sessionStorage.setItem(`session-${id}`, JSON.stringify(config));
+
+        // Send initial empty message to trigger the interviewer's opening
+        sendMessage("", config);
+      })
+      .catch(() => {
+        // Fallback: show a welcome message without API
+        setMessages([
+          {
+            role: "assistant",
+            content: `Welcome! I'll be your system design interviewer today. Please make sure you've configured your API key in Settings, then refresh this page.`,
+          },
+        ]);
+      });
   }, [id]);
 
-  const handleSendMessage = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { role: "user", content }]);
-    // TODO: Wire up to API in Wave 2
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "I hear you. Let me think about that... (API integration coming in Wave 2)",
-        },
-      ]);
-    }, 1000);
-  }, []);
+  const sendMessage = useCallback(
+    async (content: string, config?: SessionConfig) => {
+      const activeConfig = config || sessionConfig;
+      if (!activeConfig) return;
+
+      // Add user message to UI (skip for empty initial message)
+      if (content) {
+        setMessages((prev) => [...prev, { role: "user", content }]);
+      }
+
+      setIsLoading(true);
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: id,
+            message: content,
+            problemId: activeConfig.problemId,
+            level: activeConfig.level,
+            goal: activeConfig.goal,
+            jd: activeConfig.jd,
+          }),
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Error: ${error.error || "Something went wrong. Check your API key in Settings."}`,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // Update phase from headers
+        const phase = res.headers.get("X-Session-Phase");
+        if (phase) setCurrentPhase(phase);
+
+        // Stream the response
+        const reader = res.body?.getReader();
+        if (!reader) {
+          setIsLoading(false);
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let assistantContent = "";
+
+        // Add empty assistant message that we'll stream into
+        setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          assistantContent += chunk;
+
+          // Update the last message with streamed content
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "assistant",
+              content: assistantContent,
+            };
+            return updated;
+          });
+        }
+      } catch (error) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content:
+              "Connection error. Please check your internet and API key configuration.",
+          },
+        ]);
+      }
+
+      setIsLoading(false);
+    },
+    [id, sessionConfig]
+  );
+
+  const handleSendMessage = useCallback(
+    (content: string) => {
+      if (isLoading) return;
+      sendMessage(content);
+    },
+    [isLoading, sendMessage]
+  );
 
   function handleEndSession() {
     if (confirm("End this interview session?")) {
@@ -93,11 +222,14 @@ export default function SessionPage({
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-background)]">
         <div className="flex items-center gap-4">
           <SessionTimer startTime={startTime} />
-          {sessionData && (
+          {sessionConfig && (
             <span className="text-xs text-[var(--color-muted-foreground)] bg-[var(--color-muted)] px-2 py-1 rounded">
-              {sessionData.level.toUpperCase()}
+              {sessionConfig.level.toUpperCase()}
             </span>
           )}
+          <span className="text-xs text-[var(--color-muted-foreground)]">
+            Phase: {currentPhase.replace("_", " ")}
+          </span>
         </div>
         <button
           onClick={handleEndSession}
@@ -114,7 +246,11 @@ export default function SessionPage({
         </Panel>
         <PanelResizeHandle className="w-1.5 bg-[var(--color-border)] hover:bg-[var(--color-primary)]/50 transition-colors cursor-col-resize" />
         <Panel defaultSize={40} minSize={25}>
-          <AgentPanel messages={messages} onSendMessage={handleSendMessage} />
+          <AgentPanel
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+          />
         </Panel>
       </PanelGroup>
     </div>
