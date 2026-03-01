@@ -1,12 +1,18 @@
 {
   "name": "sysagent",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "bin": {
+    "sysagent": "./bin/cli.mjs"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.50",
