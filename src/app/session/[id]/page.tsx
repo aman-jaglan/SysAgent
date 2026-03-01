@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Panel,
-  PanelGroup,
-  PanelResizeHandle,
+  Group as PanelGroup,
+  Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import { AgentPanel } from "@/components/session/agent-panel";
 import { SessionTimer } from "@/components/session/session-timer";
@@ -108,7 +108,7 @@ export default function SessionPage({
       </div>
 
       {/* Split pane */}
-      <PanelGroup direction="horizontal" className="flex-1">
+      <PanelGroup orientation="horizontal" className="flex-1">
         <Panel defaultSize={60} minSize={30}>
           <ExcalidrawEditor onApiReady={setExcalidrawApi} />
         </Panel>

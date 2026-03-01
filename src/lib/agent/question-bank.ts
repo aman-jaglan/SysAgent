@@ -657,6 +657,10 @@ export const SYSTEM_DESIGN_PROBLEMS: SystemDesignProblem[] = [
 
 // Helper functions
 
+export function getAllProblems(): SystemDesignProblem[] {
+  return SYSTEM_DESIGN_PROBLEMS;
+}
+
 export function getProblemById(id: string): SystemDesignProblem | undefined {
   return SYSTEM_DESIGN_PROBLEMS.find((p) => p.id === id);
 }
